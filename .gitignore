@@ -1,0 +1,41 @@
+# AI 工作过程记录：任务计划、复盘和草稿仅在本地保留。
+/tasks/
+
+# 本地验证产物：规则快照、转换配置、报告、日志和下载的内核。
+/.validation/
+
+# Python 虚拟环境和字节码缓存。
+/.venv/
+/venv/
+__pycache__/
+*.py[cod]
+
+# 测试、静态检查和覆盖率缓存。
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+/htmlcov/
+/coverage.xml
+
+# 本地环境变量可能含订阅或访问凭据；示例文件允许提交。
+/.env
+/.env.*
+!/.env.example
+!/.env.*.example
+!/.env.sample
+!/.env.template
+
+# 编辑器个人状态和临时文件；不整体忽略可共享的 IDE 配置。
+/.idea/workspace.xml
+/.idea/shelf/
+/.history/
+*.swp
+*.swo
+*~
+
+# Windows 和 macOS 自动生成的目录元数据。
+Thumbs.db
+[Dd]esktop.ini
+.DS_Store
