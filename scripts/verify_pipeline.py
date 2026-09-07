@@ -1014,6 +1014,10 @@ def _group_runtime_checks(binary: Path, original: dict[str, Any], cases: list[di
         node_names = [proxy["name"] for proxy in original["proxies"]]
         if len(set(priority + [alternative])) != 5 or any(node not in node_names for node in priority + [alternative]):
             raise ValueError("原分组运行夹具缺少独立的美国、日本、新加坡和人工候补节点")
+        # 手动自由选择的回归必须使用自动候选以外的节点，避免只验证已有的美/日/新选项。
+        fallback_members = next(group["proxies"] for group in original["proxy-groups"] if group["name"] == fallback)
+        if alternative in fallback_members:
+            raise ValueError("手动候补夹具必须位于 AI 自动故障切换候选之外")
         with ExitStack() as stack:
             mocks = {name: stack.enter_context(_serve(_SocksServer(name))) for name in node_names}
             receiver = stack.enter_context(_serve(_ProbeServer()))
@@ -1100,6 +1104,14 @@ def _group_runtime_checks(binary: Path, original: dict[str, Any], cases: list[di
                 for node in priority:
                     mocks[node].set_state()
                 health("恢复所有候选")
+                # AI 组内可独立固定自动候选之外的节点，同时恢复用户熟悉的共享手动入口。
+                _set_selection(api, secret, ai, alternative)
+                _set_selection(api, secret, main_group, manual)
+                _set_selection(api, secret, manual, priority[0])
+                probe("AI 可独立手选自动候选之外的节点", "chatgpt.com", ai, [alternative, ai])
+                _set_selection(api, secret, ai, manual)
+                _set_selection(api, secret, manual, alternative)
+                probe("AI 共享手动入口可选择全部订阅节点", "chatgpt.com", ai, [alternative, manual, ai])
                 _set_selection(api, secret, ai, priority[2])
                 _set_selection(api, secret, main_group, manual)
                 _set_selection(api, secret, manual, alternative)

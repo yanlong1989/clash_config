@@ -599,9 +599,11 @@
       "type": "select",
       "members": [
         "🛟 AI故障切换",
+        "🚀 手动切换",
         "@region:US",
         "@region:JP",
         "@region:SG",
+        "@all",
         "🚀 节点选择",
         "REJECT"
       ]
