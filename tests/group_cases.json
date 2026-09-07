@@ -548,7 +548,8 @@
       "US01 fixture",
       "TW01 台湾 fixture",
       "SG01 NetEase fixture",
-      "KR01 韩国 fixture"
+      "KR01 韩国 fixture",
+      "Generic fixture"
     ]
   },
   "expected_groups": [
@@ -599,6 +600,7 @@
       "type": "select",
       "members": [
         "🛟 AI故障切换",
+        "⭐ AI自选节点",
         "🚀 手动切换",
         "@region:US",
         "@region:JP",
@@ -606,6 +608,13 @@
         "@all",
         "🚀 节点选择",
         "REJECT"
+      ]
+    },
+    {
+      "name": "⭐ AI自选节点",
+      "type": "select",
+      "members": [
+        "@all"
       ]
     },
     {
@@ -853,6 +862,7 @@
     "ai_secondary": "US01 fixture",
     "ai_japan": "JP01 日本 fixture",
     "ai_singapore": "SG01 NetEase fixture",
-    "manual_alternative": "HK01 香港 fixture"
+    "manual_alternative": "HK01 香港 fixture",
+    "manual_favorite": "Generic fixture"
   }
 }

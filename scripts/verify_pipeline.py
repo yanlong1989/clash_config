@@ -1004,13 +1004,14 @@ def _group_runtime_checks(binary: Path, original: dict[str, Any], cases: list[di
                           directory: Path) -> ValidationResult:
     """保留原始组图与规则，替换本地叶节点和测速终点后验证选择、故障及缓存。"""
     result = ValidationResult(details={"scenarios": [], "health_checks": []})
-    ai, fallback = "💬 Ai平台", "🛟 AI故障切换"
+    ai, fallback, ai_manual = "💬 Ai平台", "🛟 AI故障切换", "⭐ AI自选节点"
     main_group, manual, domestic = "🚀 节点选择", "🚀 手动切换", "🎯 全球直连"
     directory.mkdir(parents=True, exist_ok=True)
     try:
         roles = cases[0]
         priority = [roles[key] for key in ("ai_primary", "ai_secondary", "ai_japan", "ai_singapore")]
         alternative = roles["manual_alternative"]
+        favorite = roles["manual_favorite"]
         node_names = [proxy["name"] for proxy in original["proxies"]]
         if len(set(priority + [alternative])) != 5 or any(node not in node_names for node in priority + [alternative]):
             raise ValueError("原分组运行夹具缺少独立的美国、日本、新加坡和人工候补节点")
@@ -1018,6 +1019,8 @@ def _group_runtime_checks(binary: Path, original: dict[str, Any], cases: list[di
         fallback_members = next(group["proxies"] for group in original["proxy-groups"] if group["name"] == fallback)
         if alternative in fallback_members:
             raise ValueError("手动候补夹具必须位于 AI 自动故障切换候选之外")
+        if favorite not in node_names or favorite in fallback_members or favorite == alternative:
+            raise ValueError("AI 自选夹具需要独立于地区候补的无地区名称节点")
         with ExitStack() as stack:
             mocks = {name: stack.enter_context(_serve(_SocksServer(name))) for name in node_names}
             receiver = stack.enter_context(_serve(_ProbeServer()))
@@ -1104,6 +1107,20 @@ def _group_runtime_checks(binary: Path, original: dict[str, Any], cases: list[di
                 for node in priority:
                     mocks[node].set_state()
                 health("恢复所有候选")
+                # 自选组可固定无地区名称的优质节点，其选择独立于共享手动组。
+                _set_selection(api, secret, ai_manual, favorite)
+                _set_selection(api, secret, ai, ai_manual)
+                _set_selection(api, secret, main_group, manual)
+                _set_selection(api, secret, manual, priority[0])
+                probe("AI 自选组可固定无地区名称节点", "chatgpt.com", ai, [favorite, ai_manual, ai])
+                _set_selection(api, secret, manual, alternative)
+                probe("全局手动切换不影响 AI 自选组", "chatgpt.com", ai, [favorite, ai_manual, ai])
+                mocks[favorite].set_state(available=False)
+                probe("AI 自选节点故障时不自动换选", "chatgpt.com", ai, None)
+                if (_proxy_state(api, secret, ai_manual).get("now") != favorite
+                        or _proxy_state(api, secret, ai).get("now") != ai_manual):
+                    raise RuntimeError("自选节点故障改变了 AI 或自选组的固定选择")
+                mocks[favorite].set_state()
                 # AI 组内可独立固定自动候选之外的节点，同时恢复用户熟悉的共享手动入口。
                 _set_selection(api, secret, ai, alternative)
                 _set_selection(api, secret, main_group, manual)
@@ -1151,17 +1168,20 @@ def _group_runtime_checks(binary: Path, original: dict[str, Any], cases: list[di
                 _set_selection(api, secret, manual, alternative)
                 _set_selection(api, secret, ai, main_group)
                 _set_selection(api, secret, video, removed)
+                _set_selection(api, secret, ai_manual, favorite)
                 # v1.19.30 的 PUT 在同步写入 Cache.SetSelected 后返回，响应完成就是写入屏障。
-                result.details["cache_seed"] = {ai: main_group, video: removed,
+                result.details["cache_seed"] = {ai: main_group, video: removed, ai_manual: favorite,
                     "legacy_only_change": f"为 {video} 添加旧候选 {removed} 以建立迁移前缓存"}
             with start_core(cached, cache_dir, "restored"):
-                restored_choices = {group: _proxy_state(api, secret, group).get("now") for group in (ai, video)}
-                if restored_choices != {ai: main_group, video: main_group}:
+                restored_choices = {group: _proxy_state(api, secret, group).get("now") for group in (ai, video, ai_manual)}
+                if restored_choices != {ai: main_group, video: main_group, ai_manual: favorite}:
                     raise RuntimeError(f"缓存恢复与已确认行为不符：{restored_choices}")
                 result.details["restored_choices"] = restored_choices
                 probe("有效旧 AI 缓存继续选择主组", "chatgpt.com", ai, [alternative, manual, main_group, ai])
                 probe("移除的普通业务旧候选回退首项", "www.youtube.com", video,
                       [alternative, manual, main_group, video])
+                _set_selection(api, secret, ai, ai_manual)
+                probe("AI 自选组在重载后保留已选节点", "chatgpt.com", ai, [favorite, ai_manual, ai])
             result.details["passed"] = len(result.details["scenarios"])
     except (OSError, ValueError, KeyError, IndexError, TypeError, RuntimeError, subprocess.SubprocessError) as error:
         result.errors.append(f"原分组运行验收失败：{type(error).__name__}: {error}")
