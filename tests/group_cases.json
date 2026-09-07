@@ -1,0 +1,856 @@
+{
+  "schema_version": 1,
+  "nodes": [
+    {
+      "name": "HK01 香港 fixture",
+      "regions": [
+        "HK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "us02 Netflix fixture",
+      "regions": [
+        "US"
+      ],
+      "brands": [
+        "netflix"
+      ]
+    },
+    {
+      "name": "JP01 日本 fixture",
+      "regions": [
+        "JP"
+      ],
+      "brands": []
+    },
+    {
+      "name": "US01 fixture",
+      "regions": [
+        "US"
+      ],
+      "brands": []
+    },
+    {
+      "name": "TW01 台湾 fixture",
+      "regions": [
+        "TW"
+      ],
+      "brands": []
+    },
+    {
+      "name": "SG01 NetEase fixture",
+      "regions": [
+        "SG"
+      ],
+      "brands": [
+        "netease"
+      ]
+    },
+    {
+      "name": "KR01 韩国 fixture",
+      "regions": [
+        "KR"
+      ],
+      "brands": []
+    },
+    {
+      "name": "hk02 fixture",
+      "regions": [
+        "HK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "jp02 fixture",
+      "regions": [
+        "JP"
+      ],
+      "brands": []
+    },
+    {
+      "name": "tw02 fixture",
+      "regions": [
+        "TW"
+      ],
+      "brands": []
+    },
+    {
+      "name": "sg02 fixture",
+      "regions": [
+        "SG"
+      ],
+      "brands": []
+    },
+    {
+      "name": "kr02 fixture",
+      "regions": [
+        "KR"
+      ],
+      "brands": []
+    },
+    {
+      "name": "🇭🇰 fixture",
+      "regions": [
+        "HK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "🇯🇵 fixture",
+      "regions": [
+        "JP"
+      ],
+      "brands": []
+    },
+    {
+      "name": "🇺🇸 fixture",
+      "regions": [
+        "US"
+      ],
+      "brands": []
+    },
+    {
+      "name": "🇹🇼 fixture",
+      "regions": [
+        "TW"
+      ],
+      "brands": []
+    },
+    {
+      "name": "🇸🇬 fixture",
+      "regions": [
+        "SG"
+      ],
+      "brands": []
+    },
+    {
+      "name": "🇰🇷 fixture",
+      "regions": [
+        "KR"
+      ],
+      "brands": []
+    },
+    {
+      "name": "Hong Kong fixture",
+      "regions": [
+        "HK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "HongKong fixture",
+      "regions": [
+        "HK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "Japan fixture",
+      "regions": [
+        "JP"
+      ],
+      "brands": []
+    },
+    {
+      "name": "United States fixture",
+      "regions": [
+        "US"
+      ],
+      "brands": []
+    },
+    {
+      "name": "Taiwan fixture",
+      "regions": [
+        "TW"
+      ],
+      "brands": []
+    },
+    {
+      "name": "Singapore fixture",
+      "regions": [
+        "SG"
+      ],
+      "brands": []
+    },
+    {
+      "name": "Korea fixture",
+      "regions": [
+        "KR"
+      ],
+      "brands": []
+    },
+    {
+      "name": "东京 fixture",
+      "regions": [
+        "JP"
+      ],
+      "brands": []
+    },
+    {
+      "name": "tokyo fixture",
+      "regions": [
+        "JP"
+      ],
+      "brands": []
+    },
+    {
+      "name": "大阪 fixture",
+      "regions": [
+        "JP"
+      ],
+      "brands": []
+    },
+    {
+      "name": "osaka fixture",
+      "regions": [
+        "JP"
+      ],
+      "brands": []
+    },
+    {
+      "name": "洛杉矶 fixture",
+      "regions": [
+        "US"
+      ],
+      "brands": []
+    },
+    {
+      "name": "Los Angeles fixture",
+      "regions": [
+        "US"
+      ],
+      "brands": []
+    },
+    {
+      "name": "美西 fixture",
+      "regions": [
+        "US"
+      ],
+      "brands": []
+    },
+    {
+      "name": "美东 fixture",
+      "regions": [
+        "US"
+      ],
+      "brands": []
+    },
+    {
+      "name": "美中 fixture",
+      "regions": [
+        "US"
+      ],
+      "brands": []
+    },
+    {
+      "name": "台北 fixture",
+      "regions": [
+        "TW"
+      ],
+      "brands": []
+    },
+    {
+      "name": "Taipei fixture",
+      "regions": [
+        "TW"
+      ],
+      "brands": []
+    },
+    {
+      "name": "首尔 fixture",
+      "regions": [
+        "KR"
+      ],
+      "brands": []
+    },
+    {
+      "name": "Seoul fixture",
+      "regions": [
+        "KR"
+      ],
+      "brands": []
+    },
+    {
+      "name": "沪日 fixture",
+      "regions": [
+        "JP"
+      ],
+      "brands": []
+    },
+    {
+      "name": "深日 fixture",
+      "regions": [
+        "JP"
+      ],
+      "brands": []
+    },
+    {
+      "name": "川日 fixture",
+      "regions": [
+        "JP"
+      ],
+      "brands": []
+    },
+    {
+      "name": "新加坡 fixture",
+      "regions": [
+        "SG"
+      ],
+      "brands": []
+    },
+    {
+      "name": "香港 fixture",
+      "regions": [
+        "HK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "日本 fixture",
+      "regions": [
+        "JP"
+      ],
+      "brands": []
+    },
+    {
+      "name": "美国 fixture",
+      "regions": [
+        "US"
+      ],
+      "brands": []
+    },
+    {
+      "name": "台湾 fixture",
+      "regions": [
+        "TW"
+      ],
+      "brands": []
+    },
+    {
+      "name": "韩国 fixture",
+      "regions": [
+        "KR"
+      ],
+      "brands": []
+    },
+    {
+      "name": "KOR fixture",
+      "regions": [
+        "KR"
+      ],
+      "brands": []
+    },
+    {
+      "name": "AUS Sydney fixture",
+      "regions": [],
+      "brands": []
+    },
+    {
+      "name": "RUS Moscow fixture",
+      "regions": [],
+      "brands": []
+    },
+    {
+      "name": "USSR fixture",
+      "regions": [],
+      "brands": []
+    },
+    {
+      "name": "TRUST fixture",
+      "regions": [],
+      "brands": []
+    },
+    {
+      "name": "Media fixture",
+      "regions": [],
+      "brands": []
+    },
+    {
+      "name": "Music fixture",
+      "regions": [],
+      "brands": []
+    },
+    {
+      "name": "解锁 fixture",
+      "regions": [],
+      "brands": []
+    },
+    {
+      "name": "NF01 fixture",
+      "regions": [],
+      "brands": [
+        "netflix"
+      ]
+    },
+    {
+      "name": "netflix fixture",
+      "regions": [],
+      "brands": [
+        "netflix"
+      ]
+    },
+    {
+      "name": "奈飞 fixture",
+      "regions": [],
+      "brands": [
+        "netflix"
+      ]
+    },
+    {
+      "name": "奈飛 fixture",
+      "regions": [],
+      "brands": [
+        "netflix"
+      ]
+    },
+    {
+      "name": "网易 fixture",
+      "regions": [],
+      "brands": [
+        "netease"
+      ]
+    },
+    {
+      "name": "網易 fixture",
+      "regions": [],
+      "brands": [
+        "netease"
+      ]
+    },
+    {
+      "name": "netease fixture",
+      "regions": [],
+      "brands": [
+        "netease"
+      ]
+    },
+    {
+      "name": "NetEaseMusic fixture",
+      "regions": [],
+      "brands": [
+        "netease"
+      ]
+    },
+    {
+      "name": "CONFERENCE fixture",
+      "regions": [],
+      "brands": []
+    },
+    {
+      "name": "NETFLIXED fixture",
+      "regions": [],
+      "brands": []
+    },
+    {
+      "name": "SuperNetEase fixture",
+      "regions": [],
+      "brands": []
+    },
+    {
+      "name": "美食 fixture",
+      "regions": [],
+      "brands": []
+    },
+    {
+      "name": "坡道 fixture",
+      "regions": [],
+      "brands": []
+    },
+    {
+      "name": "平台 fixture",
+      "regions": [],
+      "brands": []
+    },
+    {
+      "name": "Generic fixture",
+      "regions": [],
+      "brands": []
+    }
+  ],
+  "subscriptions": {
+    "full": [
+      "HK01 香港 fixture",
+      "us02 Netflix fixture",
+      "JP01 日本 fixture",
+      "US01 fixture",
+      "TW01 台湾 fixture",
+      "SG01 NetEase fixture",
+      "KR01 韩国 fixture",
+      "hk02 fixture",
+      "jp02 fixture",
+      "tw02 fixture",
+      "sg02 fixture",
+      "kr02 fixture",
+      "🇭🇰 fixture",
+      "🇯🇵 fixture",
+      "🇺🇸 fixture",
+      "🇹🇼 fixture",
+      "🇸🇬 fixture",
+      "🇰🇷 fixture",
+      "Hong Kong fixture",
+      "HongKong fixture",
+      "Japan fixture",
+      "United States fixture",
+      "Taiwan fixture",
+      "Singapore fixture",
+      "Korea fixture",
+      "东京 fixture",
+      "tokyo fixture",
+      "大阪 fixture",
+      "osaka fixture",
+      "洛杉矶 fixture",
+      "Los Angeles fixture",
+      "美西 fixture",
+      "美东 fixture",
+      "美中 fixture",
+      "台北 fixture",
+      "Taipei fixture",
+      "首尔 fixture",
+      "Seoul fixture",
+      "沪日 fixture",
+      "深日 fixture",
+      "川日 fixture",
+      "新加坡 fixture",
+      "香港 fixture",
+      "日本 fixture",
+      "美国 fixture",
+      "台湾 fixture",
+      "韩国 fixture",
+      "KOR fixture",
+      "AUS Sydney fixture",
+      "RUS Moscow fixture",
+      "USSR fixture",
+      "TRUST fixture",
+      "Media fixture",
+      "Music fixture",
+      "解锁 fixture",
+      "NF01 fixture",
+      "netflix fixture",
+      "奈飞 fixture",
+      "奈飛 fixture",
+      "网易 fixture",
+      "網易 fixture",
+      "netease fixture",
+      "NetEaseMusic fixture",
+      "CONFERENCE fixture",
+      "NETFLIXED fixture",
+      "SuperNetEase fixture",
+      "美食 fixture",
+      "坡道 fixture",
+      "平台 fixture",
+      "Generic fixture"
+    ],
+    "runtime": [
+      "HK01 香港 fixture",
+      "us02 Netflix fixture",
+      "JP01 日本 fixture",
+      "US01 fixture",
+      "TW01 台湾 fixture",
+      "SG01 NetEase fixture",
+      "KR01 韩国 fixture"
+    ]
+  },
+  "expected_groups": [
+    {
+      "name": "🚀 节点选择",
+      "type": "select",
+      "members": [
+        "♻️ 自动选择",
+        "🇭🇰 香港节点",
+        "🇨🇳 台湾节点",
+        "🇸🇬 狮城节点",
+        "🇯🇵 日本节点",
+        "🇺🇲 美国节点",
+        "🇰🇷 韩国节点",
+        "🚀 手动切换",
+        "DIRECT"
+      ]
+    },
+    {
+      "name": "🚀 手动切换",
+      "type": "select",
+      "members": [
+        "@all"
+      ]
+    },
+    {
+      "name": "♻️ 自动选择",
+      "type": "url-test",
+      "members": [
+        "@all"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": 300,
+      "tolerance": 50
+    },
+    {
+      "name": "📲 电报消息",
+      "type": "select",
+      "members": [
+        "🚀 节点选择",
+        "🇸🇬 狮城节点",
+        "🚀 手动切换",
+        "DIRECT"
+      ]
+    },
+    {
+      "name": "💬 Ai平台",
+      "type": "select",
+      "members": [
+        "🛟 AI故障切换",
+        "@region:US",
+        "@region:JP",
+        "@region:SG",
+        "🚀 节点选择",
+        "REJECT"
+      ]
+    },
+    {
+      "name": "🛟 AI故障切换",
+      "type": "fallback",
+      "members": [
+        "@region:US",
+        "@region:JP",
+        "@region:SG",
+        "REJECT"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": 300
+    },
+    {
+      "name": "📹 油管视频",
+      "type": "select",
+      "members": [
+        "🚀 节点选择",
+        "🚀 手动切换",
+        "DIRECT"
+      ]
+    },
+    {
+      "name": "🎥 奈飞视频",
+      "type": "select",
+      "members": [
+        "🎥 奈飞节点",
+        "🚀 节点选择",
+        "🚀 手动切换",
+        "DIRECT"
+      ]
+    },
+    {
+      "name": "📺 巴哈姆特",
+      "type": "select",
+      "members": [
+        "🇨🇳 台湾节点",
+        "🚀 节点选择",
+        "🚀 手动切换",
+        "DIRECT"
+      ]
+    },
+    {
+      "name": "📺 哔哩哔哩",
+      "type": "select",
+      "members": [
+        "🎯 全球直连",
+        "🇨🇳 台湾节点",
+        "🇭🇰 香港节点"
+      ]
+    },
+    {
+      "name": "🌍 国外媒体",
+      "type": "select",
+      "members": [
+        "🚀 节点选择",
+        "🚀 手动切换",
+        "DIRECT"
+      ]
+    },
+    {
+      "name": "🌏 国内媒体",
+      "type": "select",
+      "members": [
+        "DIRECT",
+        "🚀 节点选择",
+        "🚀 手动切换"
+      ]
+    },
+    {
+      "name": "📢 谷歌FCM",
+      "type": "select",
+      "members": [
+        "DIRECT",
+        "🚀 节点选择",
+        "🚀 手动切换"
+      ]
+    },
+    {
+      "name": "Ⓜ️ 微软Bing",
+      "type": "select",
+      "members": [
+        "DIRECT",
+        "🚀 节点选择",
+        "🚀 手动切换"
+      ]
+    },
+    {
+      "name": "Ⓜ️ 微软云盘",
+      "type": "select",
+      "members": [
+        "DIRECT",
+        "🚀 节点选择",
+        "🚀 手动切换"
+      ]
+    },
+    {
+      "name": "Ⓜ️ 微软服务",
+      "type": "select",
+      "members": [
+        "DIRECT",
+        "🚀 节点选择",
+        "🚀 手动切换"
+      ]
+    },
+    {
+      "name": "🍎 苹果服务",
+      "type": "select",
+      "members": [
+        "DIRECT",
+        "🚀 节点选择",
+        "🚀 手动切换"
+      ]
+    },
+    {
+      "name": "🎮 游戏平台",
+      "type": "select",
+      "members": [
+        "DIRECT",
+        "🚀 节点选择",
+        "🚀 手动切换"
+      ]
+    },
+    {
+      "name": "🎶 网易音乐",
+      "type": "select",
+      "members": [
+        "DIRECT",
+        "@brand:netease",
+        "🚀 节点选择"
+      ]
+    },
+    {
+      "name": "🎯 全球直连",
+      "type": "select",
+      "members": [
+        "DIRECT",
+        "🚀 节点选择"
+      ]
+    },
+    {
+      "name": "🛑 广告拦截",
+      "type": "select",
+      "members": [
+        "REJECT",
+        "DIRECT"
+      ]
+    },
+    {
+      "name": "🍃 应用净化",
+      "type": "select",
+      "members": [
+        "REJECT",
+        "DIRECT"
+      ]
+    },
+    {
+      "name": "🐟 漏网之鱼",
+      "type": "select",
+      "members": [
+        "🚀 节点选择",
+        "🚀 手动切换",
+        "DIRECT"
+      ]
+    },
+    {
+      "name": "🇭🇰 香港节点",
+      "type": "url-test",
+      "members": [
+        "@region:HK",
+        "REJECT"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": 300,
+      "tolerance": 50
+    },
+    {
+      "name": "🇯🇵 日本节点",
+      "type": "url-test",
+      "members": [
+        "@region:JP",
+        "REJECT"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": 300,
+      "tolerance": 50
+    },
+    {
+      "name": "🇺🇲 美国节点",
+      "type": "url-test",
+      "members": [
+        "@region:US",
+        "REJECT"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": 300,
+      "tolerance": 150
+    },
+    {
+      "name": "🇨🇳 台湾节点",
+      "type": "url-test",
+      "members": [
+        "@region:TW",
+        "REJECT"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": 300,
+      "tolerance": 50
+    },
+    {
+      "name": "🇸🇬 狮城节点",
+      "type": "url-test",
+      "members": [
+        "@region:SG",
+        "REJECT"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": 300,
+      "tolerance": 50
+    },
+    {
+      "name": "🇰🇷 韩国节点",
+      "type": "url-test",
+      "members": [
+        "@region:KR",
+        "REJECT"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": 300,
+      "tolerance": 50
+    },
+    {
+      "name": "🎥 奈飞节点",
+      "type": "select",
+      "members": [
+        "@brand:netflix",
+        "🚀 节点选择"
+      ]
+    }
+  ],
+  "runtime": {
+    "subscription": "runtime",
+    "ai_primary": "us02 Netflix fixture",
+    "ai_secondary": "US01 fixture",
+    "ai_japan": "JP01 日本 fixture",
+    "ai_singapore": "SG01 NetEase fixture",
+    "manual_alternative": "HK01 香港 fixture"
+  }
+}

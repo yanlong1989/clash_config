@@ -24,7 +24,7 @@ import threading
 import time
 from typing import Any, Iterator
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import build_opener, ProxyHandler, Request
 import uuid
 
@@ -38,10 +38,6 @@ except ImportError:
 
 BUILTINS = {"DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"}
 REGIONS = ("香港", "日本", "美国", "台湾", "狮城", "新加坡", "韩国")
-FIXTURE_NAMES = (
-    "香港 HK fixture", "日本 JP fixture", "美国 US fixture",
-    "台湾 TW fixture", "新加坡 SG fixture", "韩国 KR fixture",
-)
 # 测试解析结果仅作为规则匹配元数据，所有连接都由本地 SOCKS 夹具接收。
 TEST_IPV4 = "8.8.4.4"
 TEST_IPV6 = "2001:4860:4860::8844"
@@ -71,11 +67,17 @@ def _free_port() -> int:
         return int(listener.getsockname()[1])
 
 
-def _request(url: str, *, secret: str = "", timeout: float = 15) -> bytes:
+def _request(url: str, *, secret: str = "", timeout: float = 15, method: str = "GET",
+             payload: dict[str, Any] | None = None) -> bytes:
     """直连本地辅助服务，明确绕过系统代理设置。"""
+    if urlsplit(url).hostname != "127.0.0.1":
+        raise ValueError("辅助 HTTP 请求必须使用显式 IPv4 回环地址")
     headers = {"Authorization": f"Bearer {secret}"} if secret else {}
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+    data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
     opener = build_opener(ProxyHandler({}))
-    with opener.open(Request(url, headers=headers), timeout=timeout) as response:
+    with opener.open(Request(url, headers=headers, data=data, method=method), timeout=timeout) as response:
         return response.read()
 
 
@@ -218,13 +220,40 @@ class _SocksHandler(socketserver.BaseRequestHandler):
                 return
             port = struct.unpack("!H", _recv_exact(connection, 2))[0]
             with self.server.lock:
-                self.server.seen.append({"host": target, "port": port})
+                available, delay = self.server.available, self.server.delay_ms
+                self.server.seen.append({"host": target, "port": port, "available": available})
+            if not available:
+                # 仅拒绝当前夹具连接，不触碰真实节点或用户进程。
+                connection.sendall(b"\x05\x05\x00\x01\x7f\x00\x00\x01\x00\x00")
+                return
             connection.sendall(b"\x05\x00\x00\x01\x7f\x00\x00\x01\x00\x00")
             connection.settimeout(0.5)
+            incoming = bytearray()
             while not self.server.stopping.is_set():
                 try:
-                    if not connection.recv(1024):
+                    chunk = connection.recv(4096)
+                    if not chunk:
                         break
+                    incoming.extend(chunk)
+                    if incoming.startswith((b"HEAD ", b"GET ")) and b"\r\n\r\n" in incoming:
+                        # 测速和业务探针都在 SOCKS 终点响应，永不转发目标地址。
+                        if delay:
+                            self.server.stopping.wait(delay / 1000)
+                        header, _, remaining = incoming.partition(b"\r\n\r\n")
+                        first = header.split(b"\r\n", 1)[0]
+                        body = json.dumps({"fixture": self.server.name}, ensure_ascii=False).encode("utf-8")
+                        if first.startswith(b"HEAD "):
+                            response = b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        else:
+                            response = (b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                                        + str(len(body)).encode() + b"\r\nConnection: keep-alive\r\n\r\n" + body)
+                        connection.sendall(response)
+                        if first.startswith(b"HEAD "):
+                            return
+                        incoming = bytearray(remaining)
+                    elif incoming.startswith(b"routing-fixture"):
+                        # 兼容原规则命中层；保持连接以便读取核心连接 API。
+                        incoming.clear()
                 except socket.timeout:
                     continue
         except (OSError, UnicodeError, ValueError):
@@ -236,12 +265,65 @@ class _SocksServer(socketserver.ThreadingTCPServer):
     daemon_threads = True
     block_on_close = False
 
-    def __init__(self) -> None:
+    def __init__(self, name: str = "PIPELINE-LOCAL-SOCKS") -> None:
         """初始化连接目标记录与停止信号。"""
         self.seen: list[dict[str, Any]] = []
         self.lock = threading.Lock()
         self.stopping = threading.Event()
+        self.name = name
+        self.available = True
+        self.delay_ms = 0
         super().__init__(("127.0.0.1", 0), _SocksHandler)
+
+    def set_state(self, *, available: bool = True, delay_ms: int = 0) -> None:
+        """原子切换合成节点状态，只影响此后新建的测试连接。"""
+        with self.lock:
+            self.available = available
+            self.delay_ms = max(0, delay_ms)
+
+
+class _ProbeHandler(BaseHTTPRequestHandler):
+    """本地直连接收器，同时提供不访问外网的健康检查地址。"""
+    protocol_version = "HTTP/1.1"
+
+    def handle(self) -> None:
+        """核心关闭探针长连接时容忍正常复位，避免 Windows 输出无关服务器堆栈。"""
+        try:
+            super().handle()
+        except (ConnectionResetError, BrokenPipeError):
+            return
+
+    def do_HEAD(self) -> None:
+        """为直接健康检查返回空的成功响应。"""
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def do_GET(self) -> None:
+        """记录真实 DIRECT 到达的探针，并返回可核验的夹具标识。"""
+        with self.server.lock:
+            self.server.seen.append(self.path)
+        body = b'{"fixture":"DIRECT"}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        """测试 HTTP 服务的证据以 JSON 保存，关闭常规控制台日志。"""
+
+
+class _ProbeServer(ThreadingHTTPServer):
+    """只监听 IPv4 回环地址的直连接收器。"""
+    daemon_threads = True
+    block_on_close = False
+
+    def __init__(self) -> None:
+        """建立接收记录，端口由系统分配。"""
+        self.seen: list[str] = []
+        self.lock = threading.Lock()
+        super().__init__(("127.0.0.1", 0), _ProbeHandler)
 
 
 class _DNSHandler(socketserver.BaseRequestHandler):
@@ -266,7 +348,7 @@ class _DNSHandler(socketserver.BaseRequestHandler):
             hostname = ".".join(labels).lower()
             answer = b""
             if qclass == 1 and qtype in (1, 28):
-                value = self.server.overrides.get(hostname, TEST_IPV4 if qtype == 1 else TEST_IPV6)
+                value = self.server.overrides.get(hostname, self.server.default_ipv4 if qtype == 1 else self.server.default_ipv6)
                 address = ipaddress.ip_address(value)
                 if address.version == (4 if qtype == 1 else 6):
                     packed = address.packed
@@ -280,10 +362,12 @@ class _DNSHandler(socketserver.BaseRequestHandler):
 class _DNSServer(socketserver.UDPServer):
     """仅监听回环地址的确定性 DNS 夹具。"""
 
-    def __init__(self, cases: list[dict[str, Any]]) -> None:
+    def __init__(self, cases: list[dict[str, Any]], *, default_ipv4: str = TEST_IPV4,
+                 default_ipv6: str = TEST_IPV6) -> None:
         """用例同时提供域名和 IP 时，使用指定 IP 作为本地解析结果。"""
         self.overrides = {case["domain"].lower(): case["ip"] for case in cases
                           if case.get("domain") and case.get("ip")}
+        self.default_ipv4, self.default_ipv6 = default_ipv4, default_ipv6
         super().__init__(("127.0.0.1", 0), _DNSHandler)
 
 
@@ -351,6 +435,8 @@ def _check_output(config: dict[str, Any], expected: list[str],
         if not isinstance(members, list) or not members:
             result.errors.append(f"策略组为空：{name}")
             members = []
+        if len(set(members)) != len(members):
+            result.errors.append(f"策略组成员重复：{name}")
         for member in members:
             if member not in known:
                 result.errors.append(f"策略组引用不存在：{name} -> {member}")
@@ -387,6 +473,77 @@ def _check_output(config: dict[str, Any], expected: list[str],
     result.details["node_count"] = len(node_names)
     result.details["group_count"] = len(group_names)
     return result
+
+
+def _check_group_contract(config: dict[str, Any], expectations: dict[str, Any]) -> ValidationResult:
+    """按独立节点元数据展开预期成员，检查真实转换后的完整分组合同。"""
+    result = ValidationResult(details={"groups": []})
+    try:
+        metadata = {node["name"]: node for node in expectations["nodes"]}
+        subscription = expectations.get("subscription_name", "full")
+        names = (expectations["subscription_names"] if "subscription_names" in expectations
+                 else expectations["subscriptions"][subscription])
+        if len(set(names)) != len(names) or any(name not in metadata for name in names):
+            raise ValueError("合同订阅含重复节点或缺少节点元数据")
+        actual_nodes = [proxy.get("name") for proxy in config.get("proxies", [])]
+        if actual_nodes != names:
+            result.errors.append("转换后节点名称或顺序不符合合同，可能发生标签删除或重命名")
+            result.details["nodes"] = {"expected": names, "actual": actual_nodes}
+        groups = config.get("proxy-groups", [])
+        expected_groups = expectations["expected_groups"]
+        if [group["name"] for group in groups] != [group["name"] for group in expected_groups]:
+            result.errors.append("策略组名称、数量或排列顺序不符合合同")
+        actual_map = {group["name"]: group for group in groups}
+        for expected in expected_groups:
+            name = expected["name"]
+            wanted: list[str] = []
+            for member in expected["members"]:
+                if member == "@all":
+                    expanded = names
+                elif member.startswith("@region:"):
+                    expanded = [node for node in names if member[8:] in metadata[node].get("regions", [])]
+                elif member.startswith("@brand:"):
+                    expanded = [node for node in names if member[7:] in metadata[node].get("brands", [])]
+                elif member.startswith("@"):
+                    raise ValueError(f"未知合同占位符：{member}")
+                else:
+                    expanded = [member]
+                # 正则命中的真实节点按首次出现去重，与官方转换器一致。
+                for value in expanded:
+                    if value not in wanted:
+                        wanted.append(value)
+            actual = actual_map.get(name, {})
+            mismatches = {}
+            for field in ("type", "url", "interval", "tolerance"):
+                if field in expected and actual.get(field) != expected[field]:
+                    mismatches[field] = {"expected": expected[field], "actual": actual.get(field)}
+            if actual.get("proxies") != wanted:
+                mismatches["members"] = {"expected": wanted, "actual": actual.get("proxies")}
+            record = {"name": name, "passed": not mismatches, "differences": mismatches}
+            result.details["groups"].append(record)
+            if mismatches:
+                result.errors.append(f"策略组合同不一致：{name}")
+        result.details["group_count"] = len(groups)
+        result.details["subscription"] = subscription
+    except (KeyError, TypeError, ValueError) as error:
+        result.errors.append(f"分组合同格式错误：{error}")
+    return result
+
+
+def _instrument_direct_rules(rules: list[str], target: str) -> list[str]:
+    """只在隔离副本替换 DIRECT 策略，原规则条件、顺序和选项原样保留。"""
+    if not target or "," in target or target in BUILTINS:
+        raise ValueError("DIRECT 测试别名必须是非内置的有效策略名")
+    instrumented = []
+    for rule in rules:
+        parts = rule.split(",")
+        position = 1 if parts[0].strip() in {"MATCH", "FINAL"} else 2
+        if len(parts) <= position:
+            raise ValueError(f"规则缺少目标策略：{rule}")
+        if parts[position].strip() == "DIRECT":
+            parts[position] = target
+        instrumented.append(",".join(parts))
+    return instrumented
 
 
 def _snapshot_template(template: Path, snapshot_dir: Path,
@@ -438,7 +595,7 @@ def _snapshot_template(template: Path, snapshot_dir: Path,
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
-def _subscription(names: tuple[str, ...], port: int) -> bytes:
+def _subscription(names: list[str] | tuple[str, ...], port: int) -> bytes:
     """生成只有回环 SOCKS 节点的合成 Clash 订阅，不接触真实凭据。"""
     config = {"proxies": [{"name": name, "type": "socks5", "server": "127.0.0.1", "port": port}
                           for name in names]}
@@ -495,7 +652,7 @@ def _convert(converter_url: str, snapshot_url: str, name: str, output: Path) -> 
     """请求真实 subconverter 生成 Clash 配置，并保存原始返回内容。"""
     query = urlencode({"target": "clash", "url": f"{snapshot_url}/{name}.yaml",
                        "config": f"{snapshot_url}/template.ini", "new_name": "true",
-                       "insert": "false", "emoji": "false", "list": "false"})
+                       "insert": "false", "add_emoji": "false", "remove_emoji": "false", "list": "false"})
     data = _request(f"{converter_url}/sub?{query}", timeout=90)
     output.write_bytes(data)
     config = read_yaml_unique(data.decode("utf-8-sig"))
@@ -572,7 +729,7 @@ def _core_rule_type(value: str) -> str:
     return "ipcidr" if name == "ipcidr6" else "match" if name == "final" else name
 
 
-def _connect_core(port: int, case: dict[str, Any]) -> socket.socket:
+def _connect_core(port: int, case: dict[str, Any], *, send_probe: bool = True) -> socket.socket:
     """向测试核心发起 SOCKS 请求，域名由本地 DNS 或 mock 出口处理。"""
     connection = socket.create_connection(("127.0.0.1", port), timeout=5)
     try:
@@ -594,7 +751,8 @@ def _connect_core(port: int, case: dict[str, Any]) -> socket.socket:
         if length is None:
             length = _recv_exact(connection, 1)[0]
         _recv_exact(connection, length + 2)
-        connection.sendall(b"routing-fixture\n")
+        if send_probe:
+            connection.sendall(b"routing-fixture\n")
         return connection
     except BaseException:
         connection.close()
@@ -614,18 +772,26 @@ def _runtime_checks(binary: Path, original: dict[str, Any], cases: list[dict[str
         parts = _normalise_rule(rule).split(",")
         policy = parts[1] if parts[0] == "MATCH" else parts[2]
         # 所有规则必须经已隔离的组转发，避免未来新增内置 DIRECT 规则绕过本地夹具。
-        if policy not in groups:
+        if policy not in groups and policy != "DIRECT":
             result.errors.append(f"规则出口无法在保持原文时隔离为本地夹具：{rule}")
     if result.errors:
         return result
     directory.mkdir(parents=True, exist_ok=True)
     config = copy.deepcopy(original)
     fixture = "PIPELINE-LOCAL-SOCKS"
+    direct_alias = "PIPELINE-DIRECT-RULE"
+    if direct_alias in groups:
+        result.errors.append("DIRECT 测试别名与原始分组名称冲突")
+        return result
+    config["rules"] = _instrument_direct_rules(original["rules"], direct_alias)
+    result.details["instrumented_rules"] = sum(left != right for left, right in zip(original["rules"], config["rules"]))
+    result.details["policy_mapping"] = {"DIRECT": direct_alias}
     config["proxies"] = [{"name": fixture, "type": "socks5", "server": "127.0.0.1",
                           "port": mock.server_address[1]}]
     # 只在隔离副本中统一出口；原始策略组图已经单独验证，不能把此层当真实出口验收。
     config["proxy-groups"] = [{"name": group["name"], "type": "select", "proxies": [fixture]}
                               for group in original["proxy-groups"]]
+    config["proxy-groups"].append({"name": direct_alias, "type": "select", "proxies": [fixture]})
     socks_port, controller_port = _free_port(), _free_port()
     secret = uuid.uuid4().hex
     config.update({"mixed-port": socks_port, "port": 0, "socks-port": 0,
@@ -657,8 +823,10 @@ def _runtime_checks(binary: Path, original: dict[str, Any], cases: list[dict[str
                     expected_policy = expected_parts[1] if expected_parts[0] == "MATCH" else expected_parts[2]
                     if expected_policy != case["expected_policy"]:
                         raise ValueError(f"夹具首次规则指向 {expected_policy}，用例要求 {case['expected_policy']}")
-                    if expected_policy in BUILTINS:
+                    if expected_policy in BUILTINS and expected_policy != "DIRECT":
                         raise ValueError("用例直接引用内置出口，无法在保持规则不变时接入本地 mock")
+                    runtime_policy = direct_alias if expected_policy == "DIRECT" else expected_policy
+                    record["runtime_policy"] = runtime_policy
                     with mock.lock:
                         start = len(mock.seen)
                     with _connect_core(socks_port, case) as connection:
@@ -688,7 +856,7 @@ def _runtime_checks(binary: Path, original: dict[str, Any], cases: list[dict[str
                             actual_payload = ipaddress.ip_network(actual_payload, strict=False).with_prefixlen
                         if actual_payload != wanted_payload:
                             raise ValueError(f"核心规则载荷不同：{actual_payload} != {wanted_payload}")
-                        if expected_policy not in found.get("chains", []) or fixture not in found.get("chains", []):
+                        if runtime_policy not in found.get("chains", []) or fixture not in found.get("chains", []):
                             raise ValueError("核心出站链未包含预期策略组和本地 mock 节点")
                         if not destinations:
                             raise ValueError("本地 mock 未收到该连接，无法证明隔离出站")
@@ -696,7 +864,296 @@ def _runtime_checks(binary: Path, original: dict[str, Any], cases: list[dict[str
                 except (OSError, ValueError, RuntimeError, URLError) as error:
                     record.update({"ok": False, "error": str(error)})
                     result.errors.append(f"{record['name']}: {error}")
-    result.details["scope"] = "相同规则与策略组名称的隔离核心命中；组出口改为本地 mock，不代表真实服务解锁或默认出口性能"
+    result.details["scope"] = "保留条件、顺序及 no-resolve 的隔离命中；DIRECT 映射为测试别名，各组出口为本地 mock；此层不证明真实直连或原组选择行为"
+    return result
+
+
+def _proxy_state(api: str, secret: str, name: str) -> dict[str, Any]:
+    """读取指定测试策略的当前选择和成员，不操作用户客户端。"""
+    return json.loads(_request(api + "/proxies/" + quote(name, safe=""), secret=secret))
+
+
+def _set_selection(api: str, secret: str, group: str, member: str) -> None:
+    """通过真实核心切换 select，随后读取确认选择已经生效。"""
+    _request(api + "/proxies/" + quote(group, safe=""), secret=secret,
+             method="PUT", payload={"name": member})
+    if _proxy_state(api, secret, group).get("now") != member:
+        raise RuntimeError(f"核心未保存预期选择：{group} -> {member}")
+
+
+def _health_check(api: str, secret: str, group: str, url: str) -> dict[str, Any]:
+    """主动等待本地健康检查结束；全部失败也是需要记录的有效健康状态。"""
+    endpoint = api + "/group/" + quote(group, safe="") + "/delay?" + urlencode({"url": url, "timeout": 1200})
+    try:
+        return {"status": 200, "delays": json.loads(_request(endpoint, secret=secret, timeout=20))}
+    except HTTPError as error:
+        response = error.read().decode("utf-8", errors="replace")
+        # 只接受核心明确报告的全部探测失败，认证或接口错误不能冒充故障证据。
+        if error.code not in (500, 504) or "all proxies timeout" not in response.lower():
+            raise RuntimeError(f"本地健康检查接口失败：{error.code} {response}") from error
+        return {"status": error.code, "response": response}
+
+
+def _connection_state(api: str, secret: str, port: int) -> dict[str, Any]:
+    """按入口源端口取得单个存活连接的真实命中信息。"""
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        connections = json.loads(_request(api + "/connections", secret=secret)).get("connections") or []
+        found = next((item for item in connections
+                      if str(item.get("metadata", {}).get("sourcePort")) == str(port)), None)
+        if found is not None:
+            return found
+        time.sleep(0.05)
+    raise RuntimeError("未从核心 API 取得分组探针连接")
+
+
+def _http_probe_response(connection: socket.socket) -> dict[str, Any]:
+    """读取有限长度 HTTP 响应体，不能把 SOCKS 握手成功当作业务探针成功。"""
+    connection.settimeout(4)
+    data = bytearray()
+    while b"\r\n\r\n" not in data:
+        chunk = connection.recv(4096)
+        if not chunk:
+            raise ConnectionError("本地 HTTP 探针在响应头前关闭")
+        data.extend(chunk)
+        if len(data) > 16384:
+            raise ValueError("本地 HTTP 探针响应头过长")
+    header, _, body = data.partition(b"\r\n\r\n")
+    if not header.startswith(b"HTTP/1.1 200 "):
+        raise ValueError(f"本地 HTTP 探针返回非预期状态：{header.splitlines()[0]!r}")
+    fields = dict(bytes(line).split(b":", 1) for line in header.split(b"\r\n")[1:] if b":" in line)
+    length = int(next((value for key, value in fields.items() if key.lower() == b"content-length"), b"-1"))
+    if not 0 <= length <= 8192:
+        raise ValueError("本地 HTTP 探针缺少合理的 Content-Length")
+    if len(body) < length:
+        body.extend(_recv_exact(connection, length - len(body)))
+    return json.loads(body[:length].decode("utf-8"))
+
+
+def _group_probe(api: str, secret: str, socks_port: int, receiver: _ProbeServer,
+                 mocks: dict[str, _SocksServer], rules: list[str], *, name: str,
+                 target: str, policy: str, chain: list[str] | None) -> dict[str, Any]:
+    """通过原始规则发新连接，核对实际终点与组链；失败探针必须排除直连成功。"""
+    try:
+        address = ipaddress.ip_address(target)
+    except ValueError:
+        address = None
+    if address is not None and not address.is_loopback:
+        raise ValueError("原分组探针只允许回环 IP，真实私网地址只能在规则隔离层测试")
+    case = {"ip": "127.0.0.1", "port": receiver.server_address[1]}
+    case["ip" if address is not None else "domain"] = target
+    first = _expected_first_rule(rules, case)
+    parts = _normalise_rule(first).split(",")
+    actual_policy = parts[1] if parts[0] == "MATCH" else parts[2]
+    if actual_policy != policy:
+        raise ValueError(f"分组探针 {name} 的首条规则指向 {actual_policy}，预期 {policy}")
+    token = "/probe/" + uuid.uuid4().hex
+    starts = {}
+    for node, mock in mocks.items():
+        with mock.lock:
+            starts[node] = len(mock.seen)
+    record: dict[str, Any] = {"name": name, "target": target, "expected_policy": policy,
+                              "expected_first_rule": first, "expected_chain": chain}
+    failed: OSError | None = None
+    try:
+        with _connect_core(socks_port, case, send_probe=False) as connection:
+            connection.sendall((f"GET {token} HTTP/1.1\r\nHost: {target}\r\nConnection: keep-alive\r\n\r\n").encode("ascii"))
+            response = _http_probe_response(connection)
+            found = _connection_state(api, secret, connection.getsockname()[1])
+            record.update({"fixture": response.get("fixture"), "chains": found.get("chains", []),
+                           "rule": found.get("rule"), "rule_payload": found.get("rulePayload")})
+    except OSError as error:
+        failed = error
+        record["connection_error"] = str(error)
+    attempts = []
+    for node, mock in mocks.items():
+        with mock.lock:
+            attempts.extend({"node": node, **item} for item in mock.seen[starts[node]:]
+                            if item["host"] == target and item["port"] == receiver.server_address[1])
+    record["mock_attempts"] = attempts
+    with receiver.lock:
+        received_direct = token in receiver.seen
+    record["direct_receiver_reached"] = received_direct
+    if chain is None:
+        if failed is None or received_direct:
+            raise RuntimeError(f"{name}：不可达候选仍使探针成功，或意外到达 DIRECT")
+        # 此层只验证有真实候选但全部不可达；仅有 REJECT 的结构由负例合同另验。
+        if not any(not item["available"] for item in attempts):
+            raise RuntimeError(f"{name}：失败时没有本地不可用节点的拨号证据")
+        record["expected_failure"] = True
+    else:
+        if failed is not None:
+            raise RuntimeError(f"{name}：预期成功的本地探针失败：{failed}") from failed
+        if record["chains"] != chain or record["fixture"] != chain[0]:
+            raise RuntimeError(f"{name}：出口链或终点不同，实际 {record.get('chains')} / {record.get('fixture')}，预期 {chain}")
+        if (chain[0] == "DIRECT") != received_direct:
+            raise RuntimeError(f"{name}：DIRECT 终点记录与实际出口不一致")
+        if _core_rule_type(record["rule"]) != _core_rule_type(parts[0]):
+            raise RuntimeError(f"{name}：核心首次规则类型不符")
+        payload = "" if parts[0] == "MATCH" else parts[1]
+        actual_payload = record["rule_payload"]
+        if parts[0] == "IP-CIDR":
+            actual_payload = ipaddress.ip_network(actual_payload, strict=False).with_prefixlen
+        if actual_payload != payload:
+            raise RuntimeError(f"{name}：核心首次规则载荷不符")
+    record["ok"] = True
+    return record
+
+
+def _group_runtime_checks(binary: Path, original: dict[str, Any], cases: list[dict[str, Any]],
+                          directory: Path) -> ValidationResult:
+    """保留原始组图与规则，替换本地叶节点和测速终点后验证选择、故障及缓存。"""
+    result = ValidationResult(details={"scenarios": [], "health_checks": []})
+    ai, fallback = "💬 Ai平台", "🛟 AI故障切换"
+    main_group, manual, domestic = "🚀 节点选择", "🚀 手动切换", "🎯 全球直连"
+    directory.mkdir(parents=True, exist_ok=True)
+    try:
+        roles = cases[0]
+        priority = [roles[key] for key in ("ai_primary", "ai_secondary", "ai_japan", "ai_singapore")]
+        alternative = roles["manual_alternative"]
+        node_names = [proxy["name"] for proxy in original["proxies"]]
+        if len(set(priority + [alternative])) != 5 or any(node not in node_names for node in priority + [alternative]):
+            raise ValueError("原分组运行夹具缺少独立的美国、日本、新加坡和人工候补节点")
+        with ExitStack() as stack:
+            mocks = {name: stack.enter_context(_serve(_SocksServer(name))) for name in node_names}
+            receiver = stack.enter_context(_serve(_ProbeServer()))
+            dns = stack.enter_context(_serve(_DNSServer([], default_ipv4="127.0.0.1", default_ipv6="::1")))
+            health_url = f"http://127.0.0.1:{receiver.server_address[1]}/health"
+            config = copy.deepcopy(original)
+            config["proxies"] = [{"name": name, "type": "socks5", "server": "127.0.0.1",
+                                  "port": mocks[name].server_address[1]} for name in node_names]
+            for group in config["proxy-groups"]:
+                if "url" in group:
+                    group["url"] = health_url
+            # 在生产分组中仅替换测速终点，其他字段逐项还原后必须与原图完全一致。
+            restored = copy.deepcopy(config["proxy-groups"])
+            for old, changed in zip(original["proxy-groups"], restored):
+                if "url" in old:
+                    changed["url"] = old["url"]
+            if restored != original["proxy-groups"] or config["rules"] != original["rules"]:
+                raise ValueError("原分组运行副本改变了生产选择结构或规则")
+            socks_port, controller_port = _free_port(), _free_port()
+            secret = uuid.uuid4().hex
+            api = f"http://127.0.0.1:{controller_port}"
+            resolver = f"127.0.0.1:{dns.server_address[1]}"
+            config.update({"mixed-port": socks_port, "port": 0, "socks-port": 0, "redir-port": 0,
+                           "tproxy-port": 0, "allow-lan": False, "bind-address": "127.0.0.1",
+                           "mode": "rule", "log-level": "info", "external-controller": f"127.0.0.1:{controller_port}",
+                           "secret": secret, "ipv6": True, "tun": {"enable": False}, "sniffer": {"enable": False},
+                           "hosts": {}, "profile": {"store-selected": False, "store-fake-ip": False},
+                           "dns": {"enable": True, "listen": "127.0.0.1:0", "ipv6": False,
+                                   "enhanced-mode": "redir-host", "use-hosts": False, "use-system-hosts": False,
+                                   "nameserver": [resolver], "default-nameserver": [resolver],
+                                   "proxy-server-nameserver": [resolver]}})
+            result.details["scope"] = ("保留生产规则和原组类型、成员及顺序；仅替换叶节点和健康终点，所有 DNS/控制器/数据终点使用回环。"
+                                       "健康检查完成后发送新连接，不验证真实服务解锁、生产恢复耗时或已有会话连续性。")
+            result.details["group_graph_preserved"] = True
+            result.details["leaf_nodes"] = node_names
+            result.details["health_url"] = health_url
+
+            @contextmanager
+            def start_core(value: dict[str, Any], folder: Path, stem: str) -> Iterator[None]:
+                """每次启动只使用验收私有目录，缓存阶段可以显式复用该目录。"""
+                folder.mkdir(parents=True, exist_ok=True)
+                path = folder / f"{stem}.yaml"
+                path.write_text(yaml.safe_dump(value, allow_unicode=True, sort_keys=False), encoding="utf-8")
+                with _process([str(binary), "-d", str(folder), "-f", str(path)], folder, folder / f"{stem}.log") as process:
+                    _wait_http(api + "/version", process, secret=secret)
+                    yield
+
+            def health(stage: str) -> None:
+                """记录完成的故障切换组健康检查及当前首选节点。"""
+                evidence = _health_check(api, secret, fallback, health_url)
+                evidence.update({"stage": stage, "now": _proxy_state(api, secret, fallback).get("now")})
+                result.details["health_checks"].append(evidence)
+
+            def probe(name: str, target: str, policy: str, chain: list[str] | None) -> None:
+                """保存一个原始规则下的新连接与本地真实出口证据。"""
+                result.details["scenarios"].append(_group_probe(api, secret, socks_port, receiver, mocks,
+                    original["rules"], name=name, target=target, policy=policy, chain=chain))
+
+            with start_core(config, directory / "fresh", "runtime"):
+                defaults = {group["name"]: _proxy_state(api, secret, group["name"]).get("now")
+                            for group in config["proxy-groups"] if group["type"] == "select"}
+                for group in config["proxy-groups"]:
+                    if group["type"] == "select" and defaults[group["name"]] != group["proxies"][0]:
+                        raise RuntimeError(f"无缓存的 select 未默认第一候选：{group['name']}")
+                result.details["fresh_defaults"] = defaults
+                probe("默认选择下 LAN 回环真实直连", "127.0.0.1", "DIRECT", ["DIRECT"])
+                probe("默认选择下 private 域名真实直连", "routing-verification.example", "DIRECT", ["DIRECT"])
+                # 故意使美国首项比其他候选慢，证明 fallback 按订阅优先顺序而非最低延迟选择。
+                for node, delay in zip(priority, (80, 15, 5, 1)):
+                    mocks[node].set_state(delay_ms=delay)
+                health("全部健康且首项较慢")
+                probe("AI 默认美国订阅首项", "chatgpt.com", ai, [priority[0], fallback, ai])
+                for index, label in enumerate(("美国首项故障", "全部美国故障", "日本也故障")):
+                    mocks[priority[index]].set_state(available=False)
+                    health(label)
+                    probe(label, "chatgpt.com", ai, [priority[index + 1], fallback, ai])
+                mocks[priority[3]].set_state(available=False)
+                health("全部 AI 候选故障")
+                result.details["all_failed_current"] = _proxy_state(api, secret, fallback).get("now")
+                probe("AI 全部失效必须失败且不直连", "chatgpt.com", ai, None)
+                mocks[priority[0]].set_state(delay_ms=80)
+                health("美国优先节点恢复")
+                probe("AI 恢复后新连接回到美国首项", "chatgpt.com", ai, [priority[0], fallback, ai])
+                for node in priority:
+                    mocks[node].set_state()
+                health("恢复所有候选")
+                _set_selection(api, secret, ai, priority[2])
+                _set_selection(api, secret, main_group, manual)
+                _set_selection(api, secret, manual, alternative)
+                probe("AI 固定日本不随主组切换", "chatgpt.com", ai, [priority[2], ai])
+                _set_selection(api, secret, manual, priority[0])
+                probe("AI 固定日本不随共享手动选择改变", "chatgpt.com", ai, [priority[2], ai])
+                mocks[priority[2]].set_state(available=False)
+                health("手动固定的日本节点故障")
+                probe("AI 固定节点故障不自动换选", "chatgpt.com", ai, None)
+                if _proxy_state(api, secret, ai).get("now") != priority[2]:
+                    raise RuntimeError("手动固定 AI 节点故障后选择发生变化")
+                mocks[priority[2]].set_state()
+                _set_selection(api, secret, ai, main_group)
+                _set_selection(api, secret, manual, alternative)
+                probe("人工将 AI 覆盖到主组", "chatgpt.com", ai, [alternative, manual, main_group, ai])
+                probe("改选主组及手动节点后 LAN 保持直连", "127.0.0.1", "DIRECT", ["DIRECT"])
+                probe("改选主组及手动节点后 private 保持直连", "routing-verification.example", "DIRECT", ["DIRECT"])
+                probe("普通国内默认真实直连", "www.baidu.com", domestic, ["DIRECT", domestic])
+                _set_selection(api, secret, domestic, main_group)
+                probe("普通国内跟随全球直连改走代理", "www.baidu.com", domestic,
+                      [alternative, manual, main_group, domestic])
+                probe("LAN 回环 IP 不随全局选项改变", "127.0.0.1", "DIRECT", ["DIRECT"])
+                probe("private 域名不随全局选项改变", "routing-verification.example", "DIRECT", ["DIRECT"])
+
+            # 用单独的旧菜单夹具生成缓存，再以未改组图的新配置读取；从不接触用户缓存。
+            cached = copy.deepcopy(config)
+            cached["profile"]["store-selected"] = True
+            legacy = copy.deepcopy(cached)
+            video, removed = "📹 油管视频", "♻️ 自动选择"
+            legacy_video = next(group for group in legacy["proxy-groups"] if group["name"] == video)
+            if removed in legacy_video["proxies"]:
+                raise ValueError("缓存迁移夹具的旧候选仍存在于新菜单，无法验证移除后的回退")
+            legacy_video["proxies"].append(removed)
+            cache_dir = directory / "cache-migration"
+            with start_core(legacy, cache_dir, "legacy-seed"):
+                _set_selection(api, secret, main_group, manual)
+                _set_selection(api, secret, manual, alternative)
+                _set_selection(api, secret, ai, main_group)
+                _set_selection(api, secret, video, removed)
+                # v1.19.30 的 PUT 在同步写入 Cache.SetSelected 后返回，响应完成就是写入屏障。
+                result.details["cache_seed"] = {ai: main_group, video: removed,
+                    "legacy_only_change": f"为 {video} 添加旧候选 {removed} 以建立迁移前缓存"}
+            with start_core(cached, cache_dir, "restored"):
+                restored_choices = {group: _proxy_state(api, secret, group).get("now") for group in (ai, video)}
+                if restored_choices != {ai: main_group, video: main_group}:
+                    raise RuntimeError(f"缓存恢复与已确认行为不符：{restored_choices}")
+                result.details["restored_choices"] = restored_choices
+                probe("有效旧 AI 缓存继续选择主组", "chatgpt.com", ai, [alternative, manual, main_group, ai])
+                probe("移除的普通业务旧候选回退首项", "www.youtube.com", video,
+                      [alternative, manual, main_group, video])
+            result.details["passed"] = len(result.details["scenarios"])
+    except (OSError, ValueError, KeyError, IndexError, TypeError, RuntimeError, subprocess.SubprocessError) as error:
+        result.errors.append(f"原分组运行验收失败：{type(error).__name__}: {error}")
+    _write_json(directory / "group-runtime-result.json", {"ok": result.ok, "errors": result.errors, "details": result.details})
     return result
 
 
@@ -712,12 +1169,28 @@ def _verify_pipeline(template: Path, subconverter: Path, mihomo: Path, work_dir:
     result.details["real_services_tested"] = False
     result.details["limits"] = "固定验证预算：最多 32768 条规则、单次下载最多 1048576 字节、规则集数不限、缓存关闭；不代表用户转换后端的实际配置"
     try:
-        for path in (template, subconverter, mihomo, cases_path):
+        group_cases_path = template.parent / "tests" / "group_cases.json"
+        for path in (template, subconverter, mihomo, cases_path, group_cases_path):
             if not path.is_file():
                 raise FileNotFoundError(f"验收输入不存在：{path}")
         cases = _read_json(cases_path)
         if not isinstance(cases, list) or not all(isinstance(case, dict) for case in cases):
             raise ValueError("用例文件必须是 JSON 对象数组")
+        expectations = _read_json(group_cases_path)
+        if not isinstance(expectations, dict) or expectations.get("schema_version") != 1:
+            raise ValueError("分组夹具必须采用 schema_version=1")
+        metadata = {node["name"]: node for node in expectations["nodes"]}
+        full_names = expectations["subscriptions"]["full"]
+        runtime_name = expectations["runtime"]["subscription"]
+        runtime_names = expectations["subscriptions"][runtime_name]
+        # 缺地区负例由手工标签决定，不能用待测正则或实际转换成员反推预期。
+        region_groups = {}
+        for group in expectations["expected_groups"]:
+            region_tokens = [member[8:] for member in group["members"] if member.startswith("@region:")]
+            if group["type"] == "url-test" and len(region_tokens) == 1:
+                region_groups[region_tokens[0]] = group["name"]
+        if set(region_groups) != {"HK", "JP", "US", "TW", "SG", "KR"}:
+            raise ValueError("分组夹具必须包含六个明确的地区组合同")
         snapshot_dir = run_dir / "snapshots"
         snapshot_dir.mkdir()
         frozen = validate_template(template, snapshot_dir)
@@ -736,8 +1209,12 @@ def _verify_pipeline(template: Path, subconverter: Path, mihomo: Path, work_dir:
             server.payloads["/base.yaml"] = yaml.safe_dump(base, allow_unicode=True).encode("utf-8")
             server.payloads["/template.ini"] = _snapshot_template(template, snapshot_dir, server)
             (run_dir / "snapshot-template.ini").write_bytes(server.payloads["/template.ini"])
-            fixtures = {"full": FIXTURE_NAMES + ("美国 US Netflix fixture",),
-                        "no-netflix": FIXTURE_NAMES, "no-regions": ("Generic fixture",), "zero-nodes": ()}
+            fixtures = {"full": full_names, "runtime": runtime_names,
+                        "no-netflix": [name for name in full_names if "netflix" not in metadata[name].get("brands", [])],
+                        "no-regions": [name for name in full_names if not metadata[name].get("regions")],
+                        "zero-nodes": []}
+            for region in region_groups:
+                fixtures[f"no-{region}"] = [name for name in full_names if region not in metadata[name].get("regions", [])]
             for name, nodes in fixtures.items():
                 server.payloads[f"/{name}.yaml"] = _subscription(nodes, mock.server_address[1])
             converter_dir = run_dir / "converter"
@@ -754,6 +1231,7 @@ def _verify_pipeline(template: Path, subconverter: Path, mihomo: Path, work_dir:
             normal_path = run_dir / "converted.yaml"
             config = _convert(converter_url, snapshot_url, "full", normal_path)
             _merge(result, _check_output(config, expected), "converted")
+            _merge(result, _check_group_contract(config, expectations), "group_contract")
             if result.errors:
                 return result
             _merge(result, validate_routes(normal_path, cases_path), "routes")
@@ -764,23 +1242,35 @@ def _verify_pipeline(template: Path, subconverter: Path, mihomo: Path, work_dir:
             no_netflix_path = run_dir / "no-netflix.yaml"
             no_netflix = _convert(converter_url, snapshot_url, "no-netflix", no_netflix_path)
             _merge(result, _check_output(no_netflix, expected, netflix_fallback=True), "no_netflix")
-            # 两个负例必须被实际转换错误或结构检查拒绝，拒绝信息作为成功的负例证据保存。
+            _merge(result, _check_group_contract(no_netflix, {**expectations,
+                   "subscription_names": fixtures["no-netflix"]}), "no_netflix_contract")
+            # 八个负例逐项核对唯一允许的失败原因，无关转换失败或规则损失一律不能通过。
             negatives = {}
-            for name in ("no-regions", "zero-nodes"):
+            for name in [*(f"no-{region}" for region in region_groups), "no-regions", "zero-nodes"]:
                 try:
                     negative = _convert(converter_url, snapshot_url, name, run_dir / f"{name}.yaml")
                     failures = _check_output(negative, expected).errors
-                    # 负例须因节点问题失败，规则截断等无关错误不能冒充通过。
-                    expected_failure = any("地区节点匹配为空" in failure for failure in failures)
+                    missing = list(region_groups) if name in ("no-regions", "zero-nodes") else [name[3:]]
+                    wanted_errors = [f"地区节点匹配为空：{region_groups[region]}" for region in missing]
                     if name == "zero-nodes":
-                        expected_failure = any("没有产生任何可用节点" in failure for failure in failures)
-                    negatives[name] = {"rejected": expected_failure, "errors": failures}
-                    if not expected_failure:
-                        result.errors.append(f"负例未被识别：{name}")
+                        wanted_errors.append("合成订阅没有产生任何可用节点")
+                    contract = _check_group_contract(negative, {**expectations, "subscription_names": fixtures[name]})
+                    groups_by_name = {group["name"]: group for group in negative["proxy-groups"]}
+                    placeholders = {region_groups[region]: groups_by_name[region_groups[region]]["proxies"] for region in missing}
+                    placeholder_ok = all(members == ["REJECT"] for members in placeholders.values())
+                    if name in ("no-regions", "zero-nodes"):
+                        placeholders["🛟 AI故障切换"] = groups_by_name["🛟 AI故障切换"]["proxies"]
+                        placeholder_ok = placeholder_ok and placeholders["🛟 AI故障切换"] == ["REJECT"]
+                    rejected = Counter(failures) == Counter(wanted_errors) and contract.ok and placeholder_ok
+                    negatives[name] = {"rejected": rejected, "errors": failures, "expected_errors": wanted_errors,
+                                       "contract_errors": contract.errors, "placeholders": placeholders}
+                    if not rejected:
+                        result.errors.append(f"负例未严格符合预期失败原因或 REJECT 占位：{name}")
                 except (HTTPError, ValueError) as error:
                     # 仅零节点订阅允许被转换器直接拒绝；地区缺失应由结构检查给出证据。
-                    rejected = name == "zero-nodes" and isinstance(error, HTTPError) and error.code == 400
                     response = error.read().decode("utf-8", errors="replace") if isinstance(error, HTTPError) else ""
+                    rejected = (name == "zero-nodes" and isinstance(error, HTTPError) and error.code == 400
+                                and "doesn't contain any valid node info" in response)
                     negatives[name] = {"rejected": rejected, "errors": [str(error)], "response": response}
                     if not rejected:
                         result.errors.append(f"负例因无关转换错误中断：{name}: {error}")
@@ -788,6 +1278,15 @@ def _verify_pipeline(template: Path, subconverter: Path, mihomo: Path, work_dir:
             result.details["snapshot_requests"] = server.requests
             if not result.errors:
                 _merge(result, _runtime_checks(mihomo, config, cases, run_dir / "core-runtime", mock), "core_runtime")
+            if not result.errors:
+                runtime_path = run_dir / "group-runtime.yaml"
+                runtime_config = _convert(converter_url, snapshot_url, "runtime", runtime_path)
+                _merge(result, _check_output(runtime_config, expected), "group_runtime_converted")
+                _merge(result, _check_group_contract(runtime_config, {**expectations,
+                       "subscription_name": runtime_name}), "runtime_group_contract")
+                if not result.errors:
+                    _merge(result, _group_runtime_checks(mihomo, runtime_config, [expectations["runtime"]],
+                           run_dir / "group-runtime"), "group_runtime")
     except (OSError, ValueError, KeyError, IndexError, TypeError, RuntimeError,
             subprocess.SubprocessError, yaml.YAMLError) as error:
         result.errors.append(f"流水线执行失败：{type(error).__name__}: {error}")

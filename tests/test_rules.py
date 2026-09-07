@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from http.client import HTTPResponse
 from io import BytesIO
@@ -11,6 +12,7 @@ import unittest
 from unittest import mock
 
 from scripts import validate_rules as validator
+from scripts import verify_pipeline as pipeline
 from scripts.validate_rules import (
     Rule,
     ValidationResult,
@@ -298,6 +300,171 @@ class GroupValidationTests(unittest.TestCase):
         self.assertTrue(
             any("不存在的地区组" in error for error in validate_groups(groups, proxies))
         )
+
+
+class PipelineGroupTests(unittest.TestCase):
+    """独立预期检查 DIRECT 隔离与组选择合同，不从待测配置生成答案。"""
+
+    @staticmethod
+    def _sample_contract() -> tuple[dict, dict]:
+        """手工列出交错地区的订阅及输出，专门检查原始顺序和地区归属。"""
+        expectations = {
+            "nodes": [
+                {"name": "JP fixture", "regions": ["JP"], "brands": []},
+                {"name": "US beta fixture", "regions": ["US"], "brands": ["netflix"]},
+                {"name": "US alpha fixture", "regions": ["US"], "brands": []},
+            ],
+            "subscriptions": {"full": ["JP fixture", "US beta fixture", "US alpha fixture"]},
+            "expected_groups": [
+                {"name": "共享手动", "type": "select", "members": ["@all"]},
+                {
+                    "name": "AI故障切换", "type": "fallback",
+                    "members": ["@region:US", "@region:JP", "REJECT"],
+                    "url": "http://www.gstatic.com/generate_204", "interval": 300,
+                },
+                {
+                    "name": "AI平台", "type": "select",
+                    "members": ["AI故障切换", "@region:US", "@region:JP", "共享手动", "REJECT"],
+                },
+                {
+                    "name": "美国节点", "type": "url-test", "members": ["@region:US", "REJECT"],
+                    "url": "http://www.gstatic.com/generate_204", "interval": 300, "tolerance": 150,
+                },
+                {"name": "奈飞节点", "type": "select", "members": ["@brand:netflix", "共享手动"]},
+            ],
+        }
+        config = {
+            "proxies": [{"name": "JP fixture"}, {"name": "US beta fixture"}, {"name": "US alpha fixture"}],
+            "proxy-groups": [
+                {"name": "共享手动", "type": "select", "proxies": ["JP fixture", "US beta fixture", "US alpha fixture"]},
+                {
+                    "name": "AI故障切换", "type": "fallback",
+                    "proxies": ["US beta fixture", "US alpha fixture", "JP fixture", "REJECT"],
+                    "url": "http://www.gstatic.com/generate_204", "interval": 300,
+                },
+                {
+                    "name": "AI平台", "type": "select",
+                    "proxies": ["AI故障切换", "US beta fixture", "US alpha fixture", "JP fixture", "共享手动", "REJECT"],
+                },
+                {
+                    "name": "美国节点", "type": "url-test", "proxies": ["US beta fixture", "US alpha fixture", "REJECT"],
+                    "url": "http://www.gstatic.com/generate_204", "interval": 300, "tolerance": 150,
+                },
+                {"name": "奈飞节点", "type": "select", "proxies": ["US beta fixture", "共享手动"]},
+            ],
+        }
+        return config, expectations
+
+    def test_direct_mapping_changes_only_policy_and_preserves_original(self) -> None:
+        """隔离映射只替换出口，条件中的 DIRECT、IPv6 与 no-resolve 不得改变。"""
+        rules = [
+            "DOMAIN-SUFFIX,home.arpa,DIRECT",
+            "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
+            "IP-CIDR6,fd00::/8,DIRECT,no-resolve",
+            "PROCESS-NAME,DIRECT.exe,🚀 节点选择",
+            "DOMAIN-SUFFIX,domestic.example,🎯 全球直连",
+            "MATCH,DIRECT",
+        ]
+        original = list(rules)
+        instrumented = pipeline._instrument_direct_rules(rules, "PIPELINE-DIRECT")
+        self.assertEqual(
+            instrumented,
+            [
+                "DOMAIN-SUFFIX,home.arpa,PIPELINE-DIRECT",
+                "IP-CIDR,192.168.0.0/16,PIPELINE-DIRECT,no-resolve",
+                "IP-CIDR6,fd00::/8,PIPELINE-DIRECT,no-resolve",
+                "PROCESS-NAME,DIRECT.exe,🚀 节点选择",
+                "DOMAIN-SUFFIX,domestic.example,🎯 全球直连",
+                "MATCH,PIPELINE-DIRECT",
+            ],
+        )
+        self.assertEqual(rules, original)
+
+    def test_group_contract_checks_subscription_order_region_and_brand(self) -> None:
+        """成员存在仍可能错地区、错品牌或被重排，必须使用独立预期判错。"""
+        config, expectations = self._sample_contract()
+        self.assertTrue(pipeline._check_group_contract(config, expectations).ok)
+        for group_index, wrong_members in (
+            (3, ["US alpha fixture", "US beta fixture", "REJECT"]),
+            (3, ["JP fixture", "US beta fixture", "US alpha fixture", "REJECT"]),
+            (4, ["US alpha fixture", "共享手动"]),
+        ):
+            with self.subTest(group_index=group_index, members=wrong_members):
+                changed = copy.deepcopy(config)
+                changed["proxy-groups"][group_index]["proxies"] = wrong_members
+                self.assertFalse(pipeline._check_group_contract(changed, expectations).ok)
+
+    def test_group_contract_rejects_menu_order_and_health_parameter_changes(self) -> None:
+        """改变已确认的类型、探测参数、默认候选或组清单均须判错。"""
+        config, expectations = self._sample_contract()
+        for group_index, field, value in (
+            (1, "type", "url-test"),
+            (1, "url", "https://other-probe.example/"),
+            (1, "interval", 60),
+            (3, "tolerance", 50),
+            (2, "proxies", ["共享手动", "AI故障切换", "US beta fixture", "US alpha fixture", "JP fixture", "REJECT"]),
+        ):
+            with self.subTest(group_index=group_index, field=field):
+                changed = copy.deepcopy(config)
+                changed["proxy-groups"][group_index][field] = value
+                self.assertFalse(pipeline._check_group_contract(changed, expectations).ok)
+        # 组名称都存在也不能改变已确认的显示顺序，遗漏组则更不能通过。
+        for groups in (list(reversed(config["proxy-groups"])), config["proxy-groups"][:-1]):
+            with self.subTest(groups=[group["name"] for group in groups]):
+                changed = copy.deepcopy(config)
+                changed["proxy-groups"] = groups
+                self.assertFalse(pipeline._check_group_contract(changed, expectations).ok)
+
+    def test_explicit_empty_subscription_requires_reject_placeholder(self) -> None:
+        """空订阅覆盖不是未指定，缺地区组的独立合同仍须准确得到 REJECT。"""
+        expectations = {
+            "nodes": [{"name": "US fixture", "regions": ["US"], "brands": []}],
+            "subscriptions": {"full": ["US fixture"]},
+            "expected_groups": [
+                {"name": "美国节点", "type": "url-test", "members": ["@region:US", "REJECT"]}
+            ],
+        }
+        config = {
+            "proxies": [],
+            "proxy-groups": [{"name": "美国节点", "type": "url-test", "proxies": ["REJECT"]}],
+        }
+        self.assertFalse(pipeline._check_group_contract(config, expectations).ok)
+        expectations["subscription_names"] = []
+        self.assertTrue(pipeline._check_group_contract(config, expectations).ok)
+        # 这只验证缺地区的占位合同，完整结构检查仍负责拒绝不可用配置。
+        config["proxy-groups"][0]["proxies"] = ["DIRECT"]
+        self.assertFalse(pipeline._check_group_contract(config, expectations).ok)
+
+    def test_group_contract_preserves_original_flagged_node_names(self) -> None:
+        """转换时剥除订阅原有国旗会丢失地区信息，叶节点与菜单都须保留原名。"""
+        expectations = {
+            "nodes": [{"name": "🇯🇵 fixture", "regions": ["JP"], "brands": []}],
+            "subscriptions": {"full": ["🇯🇵 fixture"]},
+            "expected_groups": [{"name": "手动选择", "type": "select", "members": ["@all"]}],
+        }
+        config = {
+            "proxies": [{"name": "🇯🇵 fixture"}],
+            "proxy-groups": [{"name": "手动选择", "type": "select", "proxies": ["🇯🇵 fixture"]}],
+        }
+        self.assertTrue(pipeline._check_group_contract(config, expectations).ok)
+        for rename_menu in (False, True):
+            with self.subTest(rename_menu=rename_menu):
+                changed = copy.deepcopy(config)
+                changed["proxies"][0]["name"] = "fixture"
+                if rename_menu:
+                    changed["proxy-groups"][0]["proxies"] = ["fixture"]
+                self.assertFalse(pipeline._check_group_contract(changed, expectations).ok)
+
+    def test_duplicate_group_members_fail_structural_check(self) -> None:
+        """同一合法节点被重复列入菜单也属于错误，不能被引用存在性掩盖。"""
+        config = {
+            "rules": ["MATCH,业务选择"],
+            "proxies": [{"name": "Generic fixture"}],
+            "proxy-groups": [{"name": "业务选择", "type": "select", "proxies": ["Generic fixture"]}],
+        }
+        self.assertTrue(pipeline._check_output(config, config["rules"]).ok)
+        config["proxy-groups"][0]["proxies"].append("Generic fixture")
+        self.assertFalse(pipeline._check_output(config, config["rules"]).ok)
 
 
 class RouteValidationTests(unittest.TestCase):
