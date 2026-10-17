@@ -10,6 +10,7 @@
   {"name": "个人 Hecate 规则", "domain": "hecategaming.com", "expected_policy": "🚀 节点选择"},
   {"name": "个人 Homebrew 规则", "domain": "brew.sh", "expected_policy": "🚀 节点选择"},
   {"name": "个人 Astral 规则", "domain": "astral.sh", "expected_policy": "🚀 节点选择"},
+  {"name": "个人 uindex 规则", "domain": "uindex.org", "expected_policy": "🚀 节点选择"},
   {"name": "AI Copilot 优先于微软大类", "domain": "copilot.microsoft.com", "expected_policy": "💬 Ai平台"},
   {"name": "AI Azure AI 优先于微软大类", "domain": "ai.azure.com", "expected_policy": "💬 Ai平台"},
   {"name": "AI ChatGPT", "domain": "chatgpt.com", "expected_policy": "💬 Ai平台"},
