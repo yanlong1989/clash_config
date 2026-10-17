@@ -37,7 +37,7 @@ except ImportError:
 
 
 BUILTINS = {"DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"}
-REGIONS = ("香港", "日本", "美国", "台湾", "狮城", "新加坡", "韩国")
+REGIONS = ("香港", "日本", "美国", "台湾", "狮城", "新加坡", "韩国", "英国")
 # 测试解析结果仅作为规则匹配元数据，所有连接都由本地 SOCKS 夹具接收。
 TEST_IPV4 = "8.8.4.4"
 TEST_IPV6 = "2001:4860:4860::8844"
@@ -1221,8 +1221,8 @@ def _verify_pipeline(template: Path, subconverter: Path, mihomo: Path, work_dir:
             region_tokens = [member[8:] for member in group["members"] if member.startswith("@region:")]
             if group["type"] == "url-test" and len(region_tokens) == 1:
                 region_groups[region_tokens[0]] = group["name"]
-        if set(region_groups) != {"HK", "JP", "US", "TW", "SG", "KR"}:
-            raise ValueError("分组夹具必须包含六个明确的地区组合同")
+        if set(region_groups) != {"HK", "JP", "US", "TW", "SG", "KR", "UK"}:
+            raise ValueError("分组夹具必须包含七个明确的地区组合同")
         snapshot_dir = run_dir / "snapshots"
         snapshot_dir.mkdir()
         frozen = validate_template(template, snapshot_dir)

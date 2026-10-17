@@ -466,6 +466,121 @@
       "name": "Generic fixture",
       "regions": [],
       "brands": []
+    },
+    {
+      "name": "UK01 英国 fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "uk02 fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "🇬🇧 fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "United Kingdom fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "Great Britain fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "Britain fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "London fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "伦敦 fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "英国 fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "Manchester fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "曼彻斯特 fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "Edinburgh fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "爱丁堡 fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "沪英 fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "深英 fixture",
+      "regions": [
+        "UK"
+      ],
+      "brands": []
+    },
+    {
+      "name": "100GB fixture",
+      "regions": [],
+      "brands": []
+    },
+    {
+      "name": "UKRAINE fixture",
+      "regions": [],
+      "brands": []
     }
   ],
   "subscriptions": {
@@ -539,7 +654,24 @@
       "美食 fixture",
       "坡道 fixture",
       "平台 fixture",
-      "Generic fixture"
+      "Generic fixture",
+      "UK01 英国 fixture",
+      "uk02 fixture",
+      "🇬🇧 fixture",
+      "United Kingdom fixture",
+      "Great Britain fixture",
+      "Britain fixture",
+      "London fixture",
+      "伦敦 fixture",
+      "英国 fixture",
+      "Manchester fixture",
+      "曼彻斯特 fixture",
+      "Edinburgh fixture",
+      "爱丁堡 fixture",
+      "沪英 fixture",
+      "深英 fixture",
+      "100GB fixture",
+      "UKRAINE fixture"
     ],
     "runtime": [
       "HK01 香港 fixture",
@@ -549,6 +681,7 @@
       "TW01 台湾 fixture",
       "SG01 NetEase fixture",
       "KR01 韩国 fixture",
+      "UK01 英国 fixture",
       "Generic fixture"
     ]
   },
@@ -564,6 +697,7 @@
         "🇯🇵 日本节点",
         "🇺🇲 美国节点",
         "🇰🇷 韩国节点",
+        "🇬🇧 英国节点",
         "🚀 手动切换",
         "DIRECT"
       ]
@@ -841,6 +975,17 @@
       "type": "url-test",
       "members": [
         "@region:KR",
+        "REJECT"
+      ],
+      "url": "http://www.gstatic.com/generate_204",
+      "interval": 300,
+      "tolerance": 50
+    },
+    {
+      "name": "🇬🇧 英国节点",
+      "type": "url-test",
+      "members": [
+        "@region:UK",
         "REJECT"
       ],
       "url": "http://www.gstatic.com/generate_204",
